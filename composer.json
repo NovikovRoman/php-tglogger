@@ -1,0 +1,25 @@
+{
+  "name": "noroman/php-tglogger",
+  "description": "Logging in telegram chats, channels.",
+  "type": "library",
+  "require": {
+    "php": ">=7.4.0",
+    "guzzlehttp/guzzle": "7.4",
+    "ext-json": "*",
+    "ext-mbstring": "*"
+  },
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Novikov Roman",
+      "email": "service.for.roman@gmail.com",
+      "role": "developer"
+    }
+  ],
+  "minimum-stability": "stable",
+  "autoload": {
+    "psr-4": {
+      "TgLogger\\": "src/"
+    }
+  }
+}
