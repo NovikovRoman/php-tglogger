@@ -1,4 +1,4 @@
-# Tg-Logger
+# TgLogger
 
 > Logging in telegram chats, channels.
 
@@ -7,7 +7,6 @@
 ```php
 <?php
 
-use GuzzleHttp\Exception\GuzzleException;
 use TgLogger\TgLogger;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -20,7 +19,7 @@ $log = new TgLogger($botToken, $chatId, 'project name [optional]');
 try {
     $log->Error('test error', ['id' => 4, 'firstName' => 'Roman', 'lastName' => 'Novikov']);
 
-} catch (Exception | GuzzleException $e) {
+} catch (Exception $e) {
     // to the standard log
     error_log($e->getMessage() .':: '. $log->getMessage());
 }
