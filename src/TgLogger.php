@@ -3,8 +3,6 @@
 namespace TgLogger;
 
 use Exception;
-use GuzzleHttp\Client;
-use GuzzleHttp\Exception\GuzzleException;
 
 class TgLogger
 {
@@ -12,18 +10,30 @@ class TgLogger
     private string $token;
     private int $chatId;
     private string $prefix;
-    private Client $httpClient;
     private int $level;
+    private int $timeout;
     private string $msg = '';
 
-    public function __construct(string $token, int $chatId, string $prefix = '', array $config = ['timeout' => 30])
+    public function __construct(string $token, int $chatId, string $prefix = '')
     {
         $this->token = $token;
         $this->chatId = $chatId;
         $this->prefix = $prefix;
         $this->url = $config['base_uri'] ?? 'https://api.telegram.org';
-        $this->httpClient = new Client($config);
         $this->level = Level::Trace;
+        $this->timeout = 30;
+    }
+
+    public function setApiUrl(int $url): TgLogger
+    {
+        $this->url = $url ?? 'https://api.telegram.org';
+        return $this;
+    }
+
+    public function setTimeout(int $timeout): TgLogger
+    {
+        $this->timeout = $timeout;
+        return $this;
     }
 
     public function setPrefix(string $prefix): TgLogger
@@ -49,7 +59,6 @@ class TgLogger
     }
 
     /**
-     * @throws GuzzleException
      */
     public function Panic(string $msg, ?array $fields): string
     {
@@ -57,7 +66,6 @@ class TgLogger
     }
 
     /**
-     * @throws GuzzleException
      * @throws Exception
      */
     public function Fatal(string $msg, ?array $fields): string
@@ -66,7 +74,6 @@ class TgLogger
     }
 
     /**
-     * @throws GuzzleException
      * @throws Exception
      */
     public function Error(string $msg, ?array $fields): string
@@ -75,7 +82,6 @@ class TgLogger
     }
 
     /**
-     * @throws GuzzleException
      * @throws Exception
      */
     public function Warn(string $msg, ?array $fields): string
@@ -84,7 +90,6 @@ class TgLogger
     }
 
     /**
-     * @throws GuzzleException
      * @throws Exception
      */
     public function Info(string $msg, ?array $fields): string
@@ -93,7 +98,6 @@ class TgLogger
     }
 
     /**
-     * @throws GuzzleException
      * @throws Exception
      */
     public function Log(string $msg, ?array $fields): string
@@ -102,7 +106,6 @@ class TgLogger
     }
 
     /**
-     * @throws GuzzleException
      * @throws Exception
      */
     public function Debug(string $msg, ?array $fields): string
@@ -111,7 +114,6 @@ class TgLogger
     }
 
     /**
-     * @throws GuzzleException
      * @throws Exception
      */
     public function Trace(string $msg, ?array $fields): string
@@ -125,7 +127,6 @@ class TgLogger
     }
 
     /**
-     * @throws GuzzleException
      * @throws Exception
      */
     private function send(int $level, string $msg, ?array $fields): string
@@ -166,7 +167,6 @@ class TgLogger
     }
 
     /**
-     * @throws GuzzleException
      * @throws Exception
      */
     private function sendMessage(string $msg)
@@ -182,7 +182,6 @@ class TgLogger
     }
 
     /**
-     * @throws GuzzleException
      * @throws Exception
      */
     private function sendDocument(string $data)
@@ -194,7 +193,7 @@ class TgLogger
             'file_name' => $name,
             'document' => [
                 'filename' => $name,
-                'contents' => $data,
+                'content' => $data,
             ],
         ];
 
@@ -202,40 +201,16 @@ class TgLogger
     }
 
     /**
-     * @throws GuzzleException
      * @throws Exception
      */
     private function sendRaw(string $method, array $payload = []): void
     {
-        $options = [
-            'multipart' => [],
-        ];
-
-        foreach ($payload as $field => $value) {
-            if (is_array($value)) {
-                $ar = $value;
-
-            } else {
-                $ar = [
-                    'contents' => $value,
-                ];
-            }
-
-            $ar['name'] = $field;
-            $options['multipart'][] = $ar;
-        }
-
-        $resp = $this->httpClient->request(
-            'POST',
-            $this->url . '/bot' . $this->token . '/' . $method,
-            $options
-        );
-
+        $resp = $this->requestPOST($method, $payload);
         if (!$resp) {
             throw new Exception('Response is nil.');
         }
 
-        $ar = json_decode($resp->getBody()->getContents(), true);
+        $ar = json_decode($resp, true);
         if ($ar['ok'] ?? false) {
             return;
         }
@@ -243,6 +218,70 @@ class TgLogger
         throw new Exception(
             'telegram: ' .
             ($ar['description'] ?? 'unknown description') . ' (' . ($ar['error_code'] ?? '???') . ')');
+    }
+
+    /**
+     * @throws Exception
+     */
+    private function requestPOST(string $method, array $fields): string
+    {
+        $delimiter = '-------------' . md5(mt_rand() . microtime());
+        $postfields = $this->buildMultiPartRequest($delimiter, $fields);
+
+        $headers = [
+            'Content-Type:multipart/form-data; boundary=' . $delimiter,
+            'Content-Length: ' . strlen($postfields),
+        ];
+
+        $options = [
+            CURLOPT_URL => $this->url . '/bot' . $this->token . '/' . $method,
+            CURLOPT_HEADER => false,
+            CURLOPT_POST => true,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_POSTFIELDS => $postfields,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => $this->timeout,
+        ];
+
+        $ch = curl_init();
+        curl_setopt_array($ch, $options);
+
+        $response = curl_exec($ch);
+
+        $info = curl_getinfo($ch);
+        $err = curl_error($ch);
+        curl_close($ch);
+
+        if ($err) {
+            throw new Exception($err);
+        }
+
+        if ($info['http_code'] != 200) {
+            throw new Exception('Status code ' . $info['http_code'] . ' ' . $response);
+        }
+
+        return $response;
+    }
+
+    function buildMultiPartRequest(string $delimiter, array $fields): string
+    {
+        $rn = "\r\n";
+
+        $data = '';
+        foreach ($fields as $name => $content) {
+            $data .= '--' . $delimiter . $rn . 'Content-Disposition: form-data; name="' . $name . '"';
+
+            if (is_array($content)) {
+                $data .= '; filename="' . $content['filename'] . '"' . $rn;
+                $data .= 'Content-Type: application/octet-stream';
+                $content = $content['content'];
+            }
+
+            $data .= $rn . $rn . $content . $rn;
+        }
+
+        $data .= '--' . $delimiter . '--' . $rn;
+        return $data;
     }
 
     private function levelToString(int $level): string
